@@ -1,0 +1,7 @@
+{
+    "semiring": "LogSemiring{Float32}",
+    "initstates": [[1, 0]],
+    "arcs": [[1, 2, 0], [2, 2, 0]],
+    "finalstates": [[2, 0]],
+    "labels": [1, 2]
+}

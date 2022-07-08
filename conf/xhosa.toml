@@ -1,0 +1,16 @@
+[data]
+units = "/jsalt1/data/xhosa/lang/phones"
+lexicon = "/jsalt1/data/xhosa/lang/lexicon"
+traintext = "/jsalt1/data/xhosa/train/text"
+devtext = "/jsalt1/data/xhosa/dev/text"
+
+[supervision]
+folder = "xhosa"
+silword = "<sil>"
+unkword = "<unk>"
+initial_silprob = 0.8
+silprob = 0.2
+final_silprob = 0.8
+ngram_order = 3
+topo = "conf/hmm_topo.json"
+
