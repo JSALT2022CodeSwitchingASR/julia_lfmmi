@@ -3,7 +3,8 @@ using Distributed
 @everywhere using Pkg
 @everywhere Pkg.activate("./")
 
-using JSON
+using GZip
+@everywhere using JSON
 @everywhere using MarkovModels
 using ProgressMeter
 @everywhere using Semirings
@@ -100,17 +101,22 @@ function make_lexicon(K, lexicon; silword)
 	lfsm
 end
 
-function make_numerator_graphs(K, folder, text, lexicon, hmms, numpdf;
+function make_numerator_graphs(K, folder, manifest, lexicon, hmms, numpdf;
                                silword, unkword, init_silprob, silprob,
                                final_silprob, ngram_order)
 
     @everywhere workers() mkpath(joinpath($folder, "$(myid() - 1)"))
     @everywhere workers() rm(joinpath($folder, "$(myid() - 1)", "fsm.scp"), force=true)
     @everywhere workers() rm(joinpath($folder, "$(myid() - 1)", "smap.scp"), force=true)
-    ngrams = @showprogress @distributed (a, b) -> mergewith((x, y) -> x .+ y, a, b) for line = readlines(text)
-		tokens = String.(split(line))
-		uttid = tokens[1]
-		seq = tokens[2:end]
+
+    fh = GZip.open(manifest)
+    lines = readlines(fh)
+    close(fh)
+
+    ngrams = @showprogress @distributed (a, b) -> mergewith((x, y) -> x .+ y, a, b) for line in lines
+        utterance = JSON.parse(line)
+		uttid = utterance["id"]
+        seq = split(utterance["text"])
 
 		if isempty(seq)
 		    Dict()
@@ -142,12 +148,12 @@ end
 # Look up the config file in the CONFIG environment variable.
 config = TOML.parsefile(ENV["CONFIG"])
 
-mkpath(config["supervision"]["folder"])
+mkpath(config["supervision"]["outdir"])
 
 @info "Make the HMMs..."
 hmms, numpdf = make_hmms(config["data"]["units"], config["supervision"]["topo"])
 
-open(joinpath(config["supervision"]["folder"], "numpdf"), "w") do f
+open(joinpath(config["supervision"]["outdir"], "numpdf"), "w") do f
     println(f, "$numpdf")
 end
 
@@ -161,12 +167,12 @@ lexicon = make_lexicon(K, config["data"]["lexicon"];
 
 #@info "Build the numerator graphs (train) ($(Threads.nthreads()) threads)..."
 @info "Build the numerator graphs (train) ($(nprocs() - 1) workers)..."
-outfolder = joinpath(config["supervision"]["folder"], "numfsms", "train")
+outfolder = joinpath(config["supervision"]["outdir"], "numfsms", "train")
 mkpath(outfolder)
 ngrams = make_numerator_graphs(
     K,
     outfolder,
-    config["data"]["traintext"],
+    config["data"]["train_manifest"],
     lexicon,
     hmms,
     numpdf;
@@ -192,12 +198,12 @@ end
 
 
 @info "Build the numerator graphs (dev) ($(nprocs() - 1) workers)..."
-outfolder = joinpath(config["supervision"]["folder"], "numfsms", "dev")
+outfolder = joinpath(config["supervision"]["outdir"], "numfsms", "dev")
 mkpath(outfolder)
 ngrams = make_numerator_graphs(
     K,
     outfolder,
-    config["data"]["devtext"],
+    config["data"]["dev_manifest"],
     lexicon,
     hmms,
     numpdf;
@@ -223,8 +229,8 @@ end
 
 @info "Build the denominator graph..."
 lmfsm = LanguageModelFSM(ngrams) ∘ hmms
-serialize(joinpath(config["supervision"]["folder"], "denominator") * ".fsm",
+serialize(joinpath(config["supervision"]["outdir"], "denominator") * ".fsm",
           lmfsm)
-serialize(joinpath(config["supervision"]["folder"], "denominator") * ".smap",
+serialize(joinpath(config["supervision"]["outdir"], "denominator") * ".smap",
           statemap(lmfsm, numpdf))
 
