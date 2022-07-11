@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 
-set -eou pipefail
-
-stage=$1
-if [ $# -gt 1 ]; then
-    echo "usage: $0 [stage]"
-    exit 1
-fi
-[ ! -z $1 ] && stage=$1
+#set -eou pipefail
 
 corpus=soapies
-corporadir=$PWD/data/$corpus
-manifestsdir=$PWD/manifests
-lang="xhosa" # leave empty if the corpus is monolingual
-expdir=exp/$lang
-njobs=4
+manifestsdir=manifests
+corporadir=data/$corpus
+lang="xhosa"
+njobs=$(nproc)
+stage=1
+stop_stage=100
 
-if [ $stage -le 1 ]; then
+. utils/parse_options.sh
+
+langdir=lang/$lang
+feadir=features/$lang
+expdir=exp/$lang
+
+if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
 
 echo "================================================================"
 echo " 1. Download and prepare the data"
@@ -26,19 +26,40 @@ lhotse prepare $corpus -l $lang $corporadir $manifestsdir
 
 fi
 
-if [ $stage -le 2 ]; then
+if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 
 echo "================================================================"
-echo " 2. Download and prepare the lexicon and the phonet set"
+echo " 2. Extract features"
 echo "================================================================"
-python local/prepare_lang.py $lang lang/$lang
+mkdir -p $feadir
+lhotse feat write-default-config $feadir/fbank.yml
+for split in train dev test; do
+    if [ ! -f $feadir/$lang/.${split}.completed ]; then
+        lhotse feat extract-cuts -j $njobs -f $feadir/fbank.yml \
+            $manifestsdir/$lang/${split}_cuts.jsonl.gz \
+            $manifestsdir/$lang/${split}_fbank.jsonl.gz \
+            $feadir/fbank/${split}
+        touch $feadir/$lang/.${split}.completed
+    else
+        echo "features already extracted for ${split}"
+    fi
+done
 
 fi
 
-if [ $stage -le 3 ]; then
+if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 
 echo "================================================================"
-echo " 3. Prepare the configuration files"
+echo " 3. Download and prepare the lexicon and the phonet set"
+echo "================================================================"
+python local/prepare_lang.py $lang $langdir
+
+fi
+
+if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
+
+echo "================================================================"
+echo " 4. Prepare the numerator and denominator graphs"
 echo "================================================================"
 
 mkdir -p $expdir
@@ -58,8 +79,8 @@ cat > $expdir/graph_config.toml << EOF
 [data]
 units = "lang/$lang/units"
 lexicon = "lang/$lang/lexicon"
-train_manifest = "manifests/$lang/soapies-${lang}_supervisions_train.jsonl.gz"
-dev_manifest = "manifests/$lang/soapies-${lang}_supervisions_dev.jsonl.gz"
+train_manifest = "manifests/$lang/train_cuts.jsonl.gz"
+dev_manifest = "manifests/$lang/dev_cuts.jsonl.gz"
 
 [supervision]
 outdir = "exp/$lang"
@@ -72,14 +93,6 @@ ngram_order = 3
 topo = "$expdir/hmm_topo.json"
 EOF
 echo "graphs (numerator/denominator) config: $expdir/graph_config.toml"
-
-fi
-
-if [ $stage -le 4 ]; then
-
-echo "================================================================"
-echo " 4. Prepare the numerator and denominator graphs"
-echo "================================================================"
 
 if [ ! -f $expdir/.graph.completed ]; then
     CONFIG=$expdir/graph_config.toml \

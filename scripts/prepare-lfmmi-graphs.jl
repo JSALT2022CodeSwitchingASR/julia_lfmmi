@@ -116,7 +116,7 @@ function make_numerator_graphs(K, folder, manifest, lexicon, hmms, numpdf;
     ngrams = @showprogress @distributed (a, b) -> mergewith((x, y) -> x .+ y, a, b) for line in lines
         utterance = JSON.parse(line)
 		uttid = utterance["id"]
-        seq = split(utterance["text"])
+        seq = split(utterance["supervisions"][1]["text"])
 
 		if isempty(seq)
 		    Dict()
